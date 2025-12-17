@@ -21,13 +21,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::get('/trades', [TradeController::class, 'index']);
+
+   
 });
 
 
-Route::post('/broadcasting/auth', function (Request $request) {
-    $userId = $request->user() ? $request->user()->id : 1;
-    
-    return [
-        'auth' => config("broadcasting.pusher.key") . md5($userId . ':private-user.' . $userId)
-    ];
-});
