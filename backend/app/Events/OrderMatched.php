@@ -10,27 +10,43 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class OrderMatched
+class OrderMatched implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    /**
-     * Create a new event instance.
-     */
-    public function __construct()
+    public $buyerId;
+    public $sellerId;
+    public $tradeData;
+
+    public function __construct($buyerId, $sellerId, $tradeData)
     {
-        //
+        $this->buyerId = $buyerId;
+        $this->sellerId = $sellerId;
+        $this->tradeData = $tradeData;
     }
 
-    /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
-     */
-    public function broadcastOn(): array
+    public function broadcastOn()
     {
         return [
-            new PrivateChannel('channel-name'),
+            new PrivateChannel('user.' . $this->buyerId),
+            new PrivateChannel('user.' . $this->sellerId),
+        ];
+    }
+
+    public function broadcastAs()
+    {
+        return 'order.matched';
+    }
+
+    public function broadcastWith()
+    {
+        return [
+            'message' => 'Order matched successfully',
+            'symbol' => $this->tradeData['symbol'],
+            'price' => $this->tradeData['price'],
+            'amount' => $this->tradeData['amount'],
+            'value' => $this->tradeData['value'],
+            'commission' => $this->tradeData['commission']
         ];
     }
 }
