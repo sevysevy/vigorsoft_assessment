@@ -6,7 +6,6 @@ import { parseDecimal, safeNumber } from '../utils/numberFormatter.js';
 
 export const useOrderStore = defineStore('order', () => {
 
-
   const user = ref(null);
   const assets = ref([]);
   const orders = ref([]);
@@ -16,28 +15,31 @@ export const useOrderStore = defineStore('order', () => {
   });
   const selectedSymbol = ref('BTC');
   const loading = ref(false);
+  
+  // Add trade update tracker for Trade History component
+  const lastTradeUpdate = ref(Date.now());
 
   const assetBalance = computed(() => {
     if (!assets.value || !Array.isArray(assets.value)) return 0
     
     const asset = assets.value.find(a => a.symbol === selectedSymbol.value)
-      if (!asset || !asset.amount) return 0
-      
-      // Use helper function
-      return parseDecimal(asset.amount);
+    if (!asset || !asset.amount) return 0
+    
+    // Use helper function
+    return parseDecimal(asset.amount);
   });
 
   const lockedAssetBalance = computed(() => {
-      if (!assets.value || !Array.isArray(assets.value)) return 0
-      
-      const asset = assets.value.find(a => a.symbol === selectedSymbol.value)
-      if (!asset || !asset.locked_amount) return 0
-      
-      return parseDecimal(asset.locked_amount);
-      });
+    if (!assets.value || !Array.isArray(assets.value)) return 0
+    
+    const asset = assets.value.find(a => a.symbol === selectedSymbol.value)
+    if (!asset || !asset.locked_amount) return 0
+    
+    return parseDecimal(asset.locked_amount);
+  });
 
-      const usdBalance = computed(() => {
-      return user.value?.balance ? parseDecimal(user.value.balance) : 0
+  const usdBalance = computed(() => {
+    return user.value?.balance ? parseDecimal(user.value.balance) : 0
   });
 
   const openOrders = computed(() =>
@@ -91,6 +93,9 @@ export const useOrderStore = defineStore('order', () => {
         fetchOrders(),
         fetchOrderbook()
       ]);
+      
+      notifyTradeUpdate();
+      
       return response.data;
     } finally {
       loading.value = false;
@@ -122,6 +127,9 @@ export const useOrderStore = defineStore('order', () => {
         fetchProfile();
         fetchOrders();
         fetchOrderbook();
+        
+        
+        notifyTradeUpdate();
 
         showNotification(
           'Order Matched',
@@ -143,6 +151,11 @@ export const useOrderStore = defineStore('order', () => {
       pusher.unsubscribeFromChannel(`private-user.${user.value.id}`);
     }
   }
+  
+  // Add method to notify trade updates
+  function notifyTradeUpdate() {
+    lastTradeUpdate.value = Date.now();
+  }
 
   return {
     // State
@@ -152,6 +165,7 @@ export const useOrderStore = defineStore('order', () => {
     orderbook,
     selectedSymbol,
     loading,
+    lastTradeUpdate, 
 
     // Getters
     usdBalance,
@@ -168,10 +182,10 @@ export const useOrderStore = defineStore('order', () => {
     cancelOrder,
     initRealTimeUpdates,
     setSymbol,
-    cleanup
+    cleanup,
+    notifyTradeUpdate 
   };
 });
-
 
 function showNotification(title, message, type) {
   alert(`${title}: ${message}`);

@@ -116,7 +116,7 @@
         <div class="lg:col-span-2 space-y-6">
           <OrderForm />
           <OrderBook />
-          
+          <TradeHistory />
         </div>
 
         <!-- Right Column -->
@@ -126,7 +126,7 @@
         </div>
       </div>
 
-      <TradeHistory />
+      
 
       <!-- Footer Info Bar -->
       <div class="bg-white rounded-xl shadow-lg p-6 border-t-4 border-blue-500">

@@ -193,20 +193,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { useOrderStore } from '../stores/orderStore';
 import api from '../services/api.js';
 
+const store = useOrderStore();
 const trades = ref([]);
 const selectedSymbol = ref('');
 const loading = ref(false);
 
-// Computed properties
+// Computed properties with proper null checks
 const totalVolume = computed(() => {
-  return trades.value.reduce((sum, trade) => sum + trade.total_value, 0);
+  if (!trades.value || trades.value.length === 0) return 0;
+  return trades.value.reduce((sum, trade) => {
+    const value = Number(trade.total_value) || 0;
+    return sum + value;
+  }, 0);
 });
 
 const totalCommission = computed(() => {
-  return trades.value.reduce((sum, trade) => sum + trade.commission, 0);
+  if (!trades.value || trades.value.length === 0) return 0;
+  return trades.value.reduce((sum, trade) => {
+    const commission = Number(trade.commission) || 0;
+    return sum + commission;
+  }, 0);
 });
 
 const netProfitLoss = computed(() => {
@@ -223,9 +233,10 @@ async function fetchTrades() {
     }
     
     const response = await api.get(url);
-    trades.value = response.data.data || response.data;
+    trades.value = response.data.data || response.data || [];
   } catch (error) {
     console.error('Failed to fetch trades:', error);
+    trades.value = [];
   } finally {
     loading.value = false;
   }
@@ -233,27 +244,69 @@ async function fetchTrades() {
 
 // Helper functions
 const formatTime = (timestamp: string) => {
+  if (!timestamp) return 'N/A';
   const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString([], { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: true 
+  });
 };
 
 const formatNumber = (value: any, decimals: number) => {
   const num = Number(value);
-  return isNaN(num) ? '0'.padEnd(decimals + 1, '0') : num.toFixed(decimals);
-};
-
-const tradeSideClass = (trade: any) => {
-  return trade.buyer_id === user?.id ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-};
-
-const tradeSideText = (trade: any) => {
-  return trade.buyer_id === user?.id ? 'BUY' : 'SELL';
+  if (isNaN(num)) return '0.' + '0'.repeat(decimals);
+  return num.toFixed(decimals);
 };
 
 // Get user from store or localStorage
-const user = JSON.parse(localStorage.getItem('user') || '{}');
+const getUserId = () => {
+  try {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      return user?.id || null;
+    }
+    return store.user?.id || null;
+  } catch (error) {
+    console.error('Error getting user:', error);
+    return null;
+  }
+};
+
+const tradeSideClass = (trade: any) => {
+  const userId = getUserId();
+  return trade.buyer_id === userId 
+    ? 'bg-green-100 text-green-800' 
+    : 'bg-red-100 text-red-800';
+};
+
+const tradeSideText = (trade: any) => {
+  const userId = getUserId();
+  return trade.buyer_id === userId ? 'BUY' : 'SELL';
+};
+
+// Watch for store changes to refresh trades immediately
+watch(() => store.lastTradeUpdate, () => {
+  fetchTrades();
+});
+
+// Auto-refresh trades every 10 seconds
+let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
   fetchTrades();
+  
+  // Set up auto-refresh
+  refreshInterval = setInterval(() => {
+    fetchTrades();
+  }, 10000); // Refresh every 10 seconds
+});
+
+// Cleanup interval on unmount
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+  }
 });
 </script>
