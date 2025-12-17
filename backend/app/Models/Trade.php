@@ -34,4 +34,28 @@ class Trade extends Model
     {
         return $this->belongsTo(Order::class, 'sell_order_id');
     }
+
+    public function scopeForUser($query, $userId)
+    {
+        return $query->where(function ($q) use ($userId) {
+            $q->whereHas('buyOrder', function ($orderQuery) use ($userId) {
+                    $orderQuery->where('user_id', $userId);
+                })
+                ->orWhereHas('sellOrder', function ($orderQuery) use ($userId) {
+                    $orderQuery->where('user_id', $userId);
+                });
+        });
+    }
+
+    public function scopeForSymbol($query, $symbol)
+    {
+        return $query->where(function ($q) use ($symbol) {
+            $q->whereHas('buyOrder', function ($orderQuery) use ($symbol) {
+                    $orderQuery->where('symbol', $symbol);
+                })
+                ->orWhereHas('sellOrder', function ($orderQuery) use ($symbol) {
+                    $orderQuery->where('symbol', $symbol);
+                });
+        });
+    }
 }

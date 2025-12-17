@@ -13,13 +13,14 @@ class TradeController extends Controller
     {
         $user = Auth::user();
         
-        $trades = Trade::whereHas('buyOrder', function ($query) use ($user) {
-                $query->where('user_id', $user->id);
-            })
-            ->orWhereHas('sellOrder', function ($query) use ($user) {
-                $query->where('user_id', $user->id);
-            })
-            ->with(['buyOrder', 'sellOrder'])
+        $tradesQuery = Trade::forUser($user->id);
+        
+        // Add symbol filter if provided
+        if ($request->filled('symbol')) {
+            $tradesQuery->forSymbol($request->symbol);
+        }
+        
+        $trades = $tradesQuery->with(['buyOrder', 'sellOrder'])
             ->orderBy('created_at', 'desc')
             ->paginate(20);
         
