@@ -38,6 +38,11 @@ class PusherService {
 
     const channel = this.pusher.subscribe(channelName);
     channel.bind(event, callback);
+
+    channel.bind('pusher:subscription_succeeded', () => {
+      console.log('✓ Successfully subscribed to channel');
+    });
+    
     this.channels.set(channelName, channel);
   }
 

@@ -174,8 +174,6 @@ import { parseDecimal, formatDecimal, safeNumber } from '../utils/numberFormatte
 
 const store = useOrderStore();
 
-console.log(store.orderbook)
-
 // Format orderbook data with proper number conversion
 const formattedSellOrders = computed(() => {
   if (!store.orderbook.sell || !Array.isArray(store.orderbook.sell)) {

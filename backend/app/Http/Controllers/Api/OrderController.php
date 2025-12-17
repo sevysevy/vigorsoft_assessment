@@ -68,30 +68,39 @@ class OrderController extends Controller
     public function orderbook(Request $request)
     {
         $symbol = $request->get('symbol', 'BTC');
-        
+
         $buyOrders = Order::open()
             ->forSymbol($symbol)
             ->buy()
             ->orderBy('price', 'desc')
             ->get()
             ->groupBy('price')
-            ->map(function ($orders) {
-                return $orders->sum('amount');
-            });
-        
+            ->map(function ($orders, $price) {
+                return [
+                    'price' => (float) $price,
+                    'amount' => (float) $orders->sum('amount'),
+                ];
+            })
+            ->values(); // 👈 re-index to array
+
         $sellOrders = Order::open()
             ->forSymbol($symbol)
             ->sell()
             ->orderBy('price', 'asc')
             ->get()
             ->groupBy('price')
-            ->map(function ($orders) {
-                return $orders->sum('amount');
-            });
-        
+            ->map(function ($orders, $price) {
+                return [
+                    'price' => (float) $price,
+                    'amount' => (float) $orders->sum('amount'),
+                ];
+            })
+            ->values(); // 👈 re-index to array
+
         return response()->json([
             'buy' => $buyOrders,
-            'sell' => $sellOrders
+            'sell' => $sellOrders,
         ]);
     }
+
 }

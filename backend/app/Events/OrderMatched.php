@@ -2,13 +2,13 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
+
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use App\Models\Trade;
 
 class OrderMatched implements ShouldBroadcast
 {
@@ -18,20 +18,23 @@ class OrderMatched implements ShouldBroadcast
     public $sellerId;
     public $tradeData;
 
-    public function __construct($buyerId, $sellerId, $tradeData)
+    public $trade;
+
+    public function __construct($buyerId, $sellerId, Trade $trade)
     {
         $this->buyerId = $buyerId;
         $this->sellerId = $sellerId;
-        $this->tradeData = $tradeData;
+        $this->trade = $trade;
     }
 
     public function broadcastOn()
     {
         return [
-            new PrivateChannel('user.' . $this->buyerId),
-            new PrivateChannel('user.' . $this->sellerId),
+            new PrivateChannel('private-user.' . $this->buyerId),
+            new PrivateChannel('private-user.' . $this->sellerId),
         ];
     }
+
 
     public function broadcastAs()
     {
@@ -41,12 +44,17 @@ class OrderMatched implements ShouldBroadcast
     public function broadcastWith()
     {
         return [
-            'message' => 'Order matched successfully',
-            'symbol' => $this->tradeData['symbol'],
-            'price' => $this->tradeData['price'],
-            'amount' => $this->tradeData['amount'],
-            'value' => $this->tradeData['value'],
-            'commission' => $this->tradeData['commission']
+            'trade' => [
+                'id' => $this->trade->id,
+                'symbol' => $this->trade->symbol,
+                'price' => (string) $this->trade->price,
+                'amount' => (string) $this->trade->amount,
+                'total_value' => (string) $this->trade->total_value,
+                'commission' => (string) $this->trade->commission,
+                'created_at' => $this->trade->created_at->toISOString(),
+            ],
+            'message' => 'Trade executed successfully',
         ];
     }
+
 }

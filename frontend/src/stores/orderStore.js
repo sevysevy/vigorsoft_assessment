@@ -18,27 +18,27 @@ export const useOrderStore = defineStore('order', () => {
   const loading = ref(false);
 
   const assetBalance = computed(() => {
-  if (!assets.value || !Array.isArray(assets.value)) return 0
-  
-  const asset = assets.value.find(a => a.symbol === selectedSymbol.value)
-    if (!asset || !asset.amount) return 0
-    
-    // Use helper function
-    return parseDecimal(asset.amount);
-    });
-
-    const lockedAssetBalance = computed(() => {
     if (!assets.value || !Array.isArray(assets.value)) return 0
     
     const asset = assets.value.find(a => a.symbol === selectedSymbol.value)
-    if (!asset || !asset.locked_amount) return 0
-    
-    return parseDecimal(asset.locked_amount);
-    });
+      if (!asset || !asset.amount) return 0
+      
+      // Use helper function
+      return parseDecimal(asset.amount);
+  });
 
-    const usdBalance = computed(() => {
-    return user.value?.balance ? parseDecimal(user.value.balance) : 0
-    });
+  const lockedAssetBalance = computed(() => {
+      if (!assets.value || !Array.isArray(assets.value)) return 0
+      
+      const asset = assets.value.find(a => a.symbol === selectedSymbol.value)
+      if (!asset || !asset.locked_amount) return 0
+      
+      return parseDecimal(asset.locked_amount);
+      });
+
+      const usdBalance = computed(() => {
+      return user.value?.balance ? parseDecimal(user.value.balance) : 0
+  });
 
   const openOrders = computed(() =>
     orders.value.filter(order => order.status === 'open')
@@ -118,6 +118,7 @@ export const useOrderStore = defineStore('order', () => {
       `private-user.${user.value.id}`,
       'order.matched',
       (data) => {
+        console.log(data)
         fetchProfile();
         fetchOrders();
         fetchOrderbook();

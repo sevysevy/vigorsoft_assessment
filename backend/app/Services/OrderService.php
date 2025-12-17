@@ -4,6 +4,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\User;
 use App\Models\Asset;
+use App\Models\Trade;
 use App\Events\OrderMatched;
 use Illuminate\Support\Facades\DB;
 
@@ -14,18 +15,27 @@ class OrderService
     public function placeOrder(User $user, array $data): Order
     {
         return DB::transaction(function () use ($user, $data) {
-            if ($data['side'] === 'buy') {
-                $order = $this->placeBuyOrder($user, $data);
-            } else {
-                $order = $this->placeSellOrder($user, $data);
+
+            $order = $data['side'] === 'buy'
+                ? $this->placeBuyOrder($user, $data)
+                : $this->placeSellOrder($user, $data);
+
+            $trade = $this->matchOrder($order);
+
+            if ($trade) {
+                DB::afterCommit(function () use ($trade, $order) {
+                    broadcast(new OrderMatched(
+                        $trade->buyOrder->user_id,
+                        $trade->sellOrder->user_id,
+                        $trade
+                    ));
+                });
             }
-            
-            // Immediate matching attempt
-            $this->matchOrder($order);
-            
+
             return $order;
         });
     }
+
     
     private function placeBuyOrder(User $user, array $data): Order
     {
@@ -72,43 +82,54 @@ class OrderService
         ]);
     }
     
-    public function matchOrder(Order $newOrder)
+    public function matchOrder(Order $order): ?Trade
     {
-        DB::transaction(function () use ($newOrder) {
-            // Find matching order based on side
-            if ($newOrder->side === 'buy') {
-                $match = Order::where('symbol', $newOrder->symbol)
-                    ->where('side', 'sell')
-                    ->where('status', 'open')
-                    ->where('price', '<=', $newOrder->price)
-                    ->orderBy('price')
-                    ->orderBy('created_at')
-                    ->lockForUpdate()
-                    ->first();
-            } else {
-                $match = Order::where('symbol', $newOrder->symbol)
-                    ->where('side', 'buy')
-                    ->where('status', 'open')
-                    ->where('price', '>=', $newOrder->price)
-                    ->orderBy('price', 'desc')
-                    ->orderBy('created_at')
-                    ->lockForUpdate()
-                    ->first();
-            }
-            
-            if (!$match || $match->amount !== $newOrder->amount) {
-                return; 
-            }
-            
-            // Execute the match
-            $this->executeTrade($newOrder, $match);
-        });
+        $match = Order::where('symbol', $order->symbol)
+            ->where('side', $order->side === 'buy' ? 'sell' : 'buy')
+            ->where('status', 'open')
+            ->where('amount', $order->amount)
+            //->where('user_id', '!=', $order->user_id)
+            ->when($order->side === 'buy', fn ($q) =>
+                $q->where('price', '<=', $order->price)->orderBy('price', 'asc')
+            )
+            ->when($order->side === 'sell', fn ($q) =>
+                $q->where('price', '>=', $order->price)->orderBy('price', 'desc')
+            )
+            ->lockForUpdate()
+            ->first();
+
+        if (!$match) {
+            return null;
+        }
+
+        return $this->executeTrade($order, $match);
     }
+
+
     
     private function executeTrade(Order $order1, Order $order2)
     {
+
         $buyOrder = $order1->side === 'buy' ? $order1 : $order2;
         $sellOrder = $order1->side === 'sell' ? $order1 : $order2;
+
+
+        $buyer = User::where('id', $buyOrder->user_id)->lockForUpdate()->first();
+        $seller = User::where('id', $sellOrder->user_id)->lockForUpdate()->first();
+
+        $buyerAsset = Asset::where('user_id', $buyer->id)
+            ->where('symbol', $buyOrder->symbol)
+            ->lockForUpdate()
+            ->firstOrCreate(
+                ['user_id' => $buyer->id, 'symbol' => $buyOrder->symbol],
+                ['amount' => 0, 'locked_amount' => 0]
+            );
+
+        $sellerAsset = Asset::where('user_id', $seller->id)
+            ->where('symbol', $sellOrder->symbol)
+            ->lockForUpdate()
+            ->first();
+
         
         $price = $sellOrder->price;
         $amount = $buyOrder->amount;
@@ -119,47 +140,93 @@ class OrderService
         $buyOrder->update(['status' => 'filled', 'filled_amount' => $amount]);
         $sellOrder->update(['status' => 'filled', 'filled_amount' => $amount]);
         
-
+        // Process buyer
         $buyer = $buyOrder->user;
         $lockedAmount = $buyOrder->amount * $buyOrder->price;
         
-
+        // Add asset to buyer
         $buyerAsset = Asset::firstOrCreate(
             ['user_id' => $buyer->id, 'symbol' => $buyOrder->symbol],
             ['amount' => 0, 'locked_amount' => 0]
         );
         $buyerAsset->increment('amount', $amount);
         
+        // Refund excess if buy price > sell price
         if ($buyOrder->price > $sellOrder->price) {
             $refund = ($buyOrder->price - $sellOrder->price) * $amount;
             $buyer->increment('balance', $refund);
         }
         
+        // Deduct commission from buyer
         $buyer->decrement('balance', $commission);
         
+        // Process seller
         $seller = $sellOrder->user;
         $sellerAsset = Asset::where([
             'user_id' => $seller->id,
             'symbol' => $sellOrder->symbol
         ])->first();
         
+        // Release locked assets
         $sellerAsset->decrement('locked_amount', $amount);
         
-
+        // Seller gets full trade value (buyer pays commission)
         $seller->increment('balance', $tradeValue);
         
-        broadcast(new OrderMatched(
-            $buyOrder->user_id,
-            $sellOrder->user_id,
-            [
-                'symbol' => $buyOrder->symbol,
-                'price' => $price,
-                'amount' => $amount,
-                'value' => $tradeValue,
-                'commission' => $commission,
-                'buy_order_id' => $buyOrder->id,
-                'sell_order_id' => $sellOrder->id
-            ]
-        ));
+        // ========== CREATE TRADE RECORD (MINIMAL) ==========
+        // Check if Trade model exists, create it if not
+        $trade = Trade::create([
+            'buy_order_id' => $buyOrder->id,
+            'sell_order_id' => $sellOrder->id,
+            'symbol' => $buyOrder->symbol,
+            'price' => $price,
+            'amount' => $amount,
+            'total_value' => $tradeValue,
+            'commission' => $commission,
+            'created_at' => now(),
+            'updated_at' => now()
+        ]);
+
+        return $trade;
+    }
+
+
+    // app/Services/OrderService.php - Add this method
+    public function cancelOrder(Order $order)
+    {
+        return DB::transaction(function () use ($order) {
+            if ($order->status !== 'open') {
+                throw new \Exception('Order cannot be cancelled');
+            }
+
+            // Update order status
+            $order->update(['status' => 'cancelled']);
+
+            if ($order->side === 'buy') {
+                // Release locked USD back to user
+                $lockedAmount = $order->amount * $order->price;
+                $filledValue = $order->filled_amount * $order->price;
+                $toRelease = $lockedAmount - $filledValue;
+                
+                if ($toRelease > 0) {
+                    $order->user->increment('balance', $toRelease);
+                }
+            } else {
+                // Release locked assets back to available amount
+                $toRelease = $order->amount - $order->filled_amount;
+                
+                $asset = Asset::where([
+                    'user_id' => $order->user_id,
+                    'symbol' => $order->symbol
+                ])->first();
+                
+                if ($asset && $toRelease > 0) {
+                    $asset->decrement('locked_amount', $toRelease);
+                    $asset->increment('amount', $toRelease);
+                }
+            }
+
+            return $order;
+        });
     }
 }
